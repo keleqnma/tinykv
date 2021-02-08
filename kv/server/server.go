@@ -38,22 +38,83 @@ func NewServer(storage storage.Storage) *Server {
 // Raw API.
 func (server *Server) RawGet(_ context.Context, req *kvrpcpb.RawGetRequest) (*kvrpcpb.RawGetResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	var e string
+	reader, err := server.storage.Reader(nil)
+	if err != nil {
+		return nil, err
+	}
+	value, err := reader.GetCF(req.Cf, req.Key)
+	if err != nil {
+		e = err.Error()
+	}
+	resp := &kvrpcpb.RawGetResponse{
+		Error:    e,
+		Value:    value,
+		NotFound: value == nil,
+	}
+	defer reader.Close()
+	return resp, err
 }
 
 func (server *Server) RawPut(_ context.Context, req *kvrpcpb.RawPutRequest) (*kvrpcpb.RawPutResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	var batch []storage.Modify
+	var resp *kvrpcpb.RawPutResponse
+	batch = append(batch, storage.Modify{Data: storage.Put{
+		Key:   req.Key,
+		Value: req.Value,
+		Cf:    req.Cf,
+	}})
+	err := server.storage.Write(nil, batch)
+	if err != nil {
+		resp = &kvrpcpb.RawPutResponse{
+			Error: err.Error(),
+		}
+	}
+	return resp, err
 }
 
 func (server *Server) RawDelete(_ context.Context, req *kvrpcpb.RawDeleteRequest) (*kvrpcpb.RawDeleteResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	var batch []storage.Modify
+	var resp *kvrpcpb.RawDeleteResponse
+	batch = append(batch, storage.Modify{Data: storage.Delete{
+		Key: req.Key,
+		Cf:  req.Cf,
+	}})
+	err := server.storage.Write(nil, batch)
+	if err != nil {
+		resp = &kvrpcpb.RawDeleteResponse{
+			Error: err.Error(),
+		}
+	}
+	return resp, err
 }
 
 func (server *Server) RawScan(_ context.Context, req *kvrpcpb.RawScanRequest) (*kvrpcpb.RawScanResponse, error) {
 	// Your Code Here (1).
-	return nil, nil
+	var resp *kvrpcpb.RawScanResponse
+	resp = &kvrpcpb.RawScanResponse{Kvs: make([]*kvrpcpb.KvPair, 0)}
+	reader, err := server.storage.Reader(nil)
+	if err != nil {
+		return nil, err
+	}
+	it := reader.IterCF(req.Cf)
+	it.Seek([]byte{1})
+	for i := uint32(1); it.Valid() && i <= req.Limit; i++ {
+		item := it.Item()
+		val, err := item.Value()
+		if err != nil {
+			return resp, err
+		}
+		resp.Kvs = append(resp.Kvs, &kvrpcpb.KvPair{
+			Key:   item.Key(),
+			Value: val,
+		})
+		it.Next()
+	}
+	defer it.Close()
+	return resp, nil
 }
 
 // Raft commands (tinykv <-> tinykv)
